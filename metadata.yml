@@ -1,0 +1,14 @@
+title: "My Blog"
+description: "Tutorials and posts"
+plugins:
+  datasette-template-sql: {}
+  datasette-render-markdown:
+    columns:
+      - body
+databases:
+  blog:
+    tables:
+      posts:
+        sort_desc: title
+        facets:
+          - topic

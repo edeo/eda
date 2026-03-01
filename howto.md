@@ -1,47 +1,66 @@
-# Building a TIL Blog with Datasette
-
-Based on the pattern used by [simonw/til](https://github.com/simonw/til).
+# Step-by-Step: Build a Blog with Datasette
 
 ---
 
-## The Overall Architecture
+## Step 1 — Create the repo and folder structure
 
-```
-your-repo/
-├── topic-one/
-│   ├── first-post.md
-│   └── second-post.md
-├── topic-two/
-│   └── some-post.md
-├── templates/
-│   └── index.html
-├── build_database.py
-├── metadata.yml
-├── requirements.txt
-└── .github/workflows/build.yml
+```bash
+mkdir my-til
+cd my-til
+git init
 ```
 
-Markdown files on disk → Python script builds a SQLite DB → Datasette serves it with custom templates → GitHub Actions rebuilds and redeploys on every push.
+Create the directories you'll need:
+
+```bash
+mkdir templates
+mkdir .github
+mkdir .github/workflows
+mkdir python   # your first topic folder — name it whatever you want
+```
 
 ---
 
-## 1. The Markdown Files
+## Step 2 — Set up your Python environment with uv
 
-Simon uses a simple convention: no YAML frontmatter. The first line is the `# Title`, everything else is the body.
+If you don't have uv yet:
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh   # Mac/Linux
+# or: pip install uv
+```
 
+Then initialize the project and add your dependencies:
+
+```bash
+uv init
+uv add datasette sqlite-utils httpx datasette-template-sql datasette-render-markdown
+```
+
+This creates a `pyproject.toml` (your dependency list) and a `uv.lock` (exact pinned versions for reproducibility). You don't need a separate `requirements.txt`.
+
+To activate the virtual environment uv creates:
+```bash
+source .venv/bin/activate       # Windows: .venv\Scripts\activate
+```
+
+---
+
+## Step 3 — Write your first post
+
+Create a markdown file inside a topic folder. The folder name = the topic. The first line = the title (no frontmatter needed).
+
+**`python/first-post.md`**:
 ```markdown
-# How I learned to stop worrying and love SQLite
+# My first post
 
-Some content here...
+Something I want to share today...
 ```
-
-Files live in topic subdirectories like `python/decorators.md`, `git/rebase-tricks.md`, etc. The directory name becomes the "topic" field in the DB.
 
 ---
 
-## 2. `build_database.py`
+## Step 4 — Create `build_database.py`
 
-This is the core script. It walks the filesystem and loads everything into SQLite using `sqlite-utils`:
+This script reads all your markdown files and loads them into a SQLite database.
 
 ```python
 import pathlib
@@ -52,8 +71,8 @@ import os
 root = pathlib.Path(__file__).parent.resolve()
 
 def build_database(root):
-    db = sqlite_utils.Database(root / "posts.db")
-    table = db.table("til", pk="path")
+    db = sqlite_utils.Database(root / "blog.db")
+    table = db.table("posts", pk="path")
 
     for filepath in root.glob("*/*.md"):
         fp = filepath.open()
@@ -61,12 +80,12 @@ def build_database(root):
         body = fp.read().strip()
 
         path = str(filepath.relative_to(root))
-        path_slug = path.replace("/", "_")   # e.g. "python_decorators"
-        slug = filepath.stem                  # e.g. "decorators"
-        topic = path.split("/")[0]            # e.g. "python"
-        url = f"https://github.com/YOU/REPO/blob/main/{path}"
+        path_slug = path.replace("/", "_")
+        slug = filepath.stem
+        topic = path.split("/")[0]
+        url = f"https://github.com/YOUR_USERNAME/YOUR_REPO/blob/main/{path}"
 
-        # Only re-render HTML if body changed (saves GitHub API calls)
+        # Only re-render HTML if the body changed
         try:
             row = table.get(path_slug)
             previous_body = row["body"]
@@ -85,7 +104,6 @@ def build_database(root):
         }
 
         if body != previous_body or not previous_html:
-            # Use GitHub's markdown API to render (handles code highlighting etc.)
             headers = {}
             if os.environ.get("GITHUB_TOKEN"):
                 headers = {"authorization": f"Bearer {os.environ['GITHUB_TOKEN']}"}
@@ -100,83 +118,137 @@ def build_database(root):
 
         table.upsert(record)
 
-    # Full-text search across title and body
-    if "til_fts" not in db.table_names():
+    if "posts_fts" not in db.table_names():
         table.enable_fts(["title", "body"])
 
 if __name__ == "__main__":
     build_database(root)
 ```
 
-Key things happening here:
-
-- `sqlite-utils` creates the table automatically from the dict structure on first run
-- `upsert` (not `insert`) means re-running is idempotent
-- It only re-calls the GitHub markdown API if the body changed, so you don't burn your rate limit
-- `enable_fts` gives you full-text search for free in Datasette
+> ⚠️ Replace `YOUR_USERNAME/YOUR_REPO` with your actual GitHub repo path.
 
 ---
 
-## 3. Custom Templates
+## Step 5 — Run the build script and test it locally
 
-Datasette uses Jinja2 templates. Create a `templates/` directory. The most important one is `index.html`, which overrides the default Datasette homepage.
-
-**`templates/index.html`**:
-```html
-{% extends "base.html" %}
-
-{% block content %}
-<h1>My TILs</h1>
-
-{% for row in sql("SELECT topic, title, path FROM til ORDER BY topic, title") %}
-  <h2>{{ row.topic }}</h2>
-  <a href="/tils/til/{{ row.path }}">{{ row.title }}</a>
-{% endfor %}
-{% endblock %}
+```bash
+uv run python build_database.py
 ```
 
-The `sql()` function comes from `datasette-template-sql` — it lets you run SQL queries directly in Jinja2 templates. This is how Simon feeds data to the index page without needing a custom plugin.
+You should now have a `blog.db` file. Start Datasette to see it:
+
+```bash
+uv run datasette blog.db
+```
+
+Visit `http://localhost:8001` — you'll see the raw Datasette UI with your data. It works, but the homepage isn't customized yet. Do that in the next steps.
 
 ---
 
-## 4. `metadata.yml`
+## Step 6 — Create `metadata.yml`
 
-This controls Datasette's configuration, plugins, and page metadata:
+This configures Datasette's title, plugins, and table display settings.
 
 ```yaml
-title: "My TIL"
-description: "Things I've learned"
+title: "My Blog"
+description: "Tutorials and posts"
 plugins:
   datasette-template-sql: {}
   datasette-render-markdown:
     columns:
       - body
 databases:
-  tils:
+  blog:
     tables:
-      til:
-        sort_desc: created
+      posts:
+        sort_desc: title
         facets:
           - topic
 ```
 
-`datasette-render-markdown` renders the `body` column as HTML in the table view. Since you're already storing pre-rendered HTML in the `html` column, you can also use that directly in your custom templates.
+---
+
+## Step 7 — Create a custom homepage template
+
+This overrides the default Datasette index page.
+
+**`templates/index.html`**:
+```html
+{% extends "base.html" %}
+
+{% block content %}
+<h1>My Blog</h1>
+<p>{{ databases["blog"].execute("SELECT COUNT(*) FROM posts").fetchone()[0] }} posts so far.</p>
+
+{% set topics = databases["blog"].execute("SELECT DISTINCT topic FROM posts ORDER BY topic").fetchall() %}
+{% for topic_row in topics %}
+  <h2>{{ topic_row[0] }}</h2>
+  <ul>
+    {% for row in databases["blog"].execute("SELECT title, path FROM posts WHERE topic = ? ORDER BY title", [topic_row[0]]).fetchall() %}
+    <li><a href="/blog/posts/{{ row[1] }}">{{ row[0] }}</a></li>
+    {% endfor %}
+  </ul>
+{% endfor %}
+{% endblock %}
+```
+
+Now test with your metadata and templates:
+
+```bash
+uv run datasette blog.db --metadata metadata.yml --template-dir templates/
+```
+
+Visit `http://localhost:8001` — you should now see your custom homepage with posts listed by topic.
 
 ---
 
-## 5. `requirements.txt`
+## Step 8 — Create a `.gitignore`
 
 ```
-datasette
-sqlite-utils
-httpx
-datasette-template-sql
-datasette-render-markdown
+.venv/
+__pycache__/
+*.pyc
+blog.db         # the DB is built by CI, not committed to git
+```
+
+Do commit `pyproject.toml` and `uv.lock` — both should be in version control.
+
+---
+
+## Step 9 — Push to GitHub
+
+Create a new repo on GitHub (name it `my-til` or whatever you like), then:
+
+```bash
+git add .
+git commit -m "Initial commit"
+git remote add origin https://github.com/YOUR_USERNAME/YOUR_REPO.git
+git push -u origin main
 ```
 
 ---
 
-## 6. GitHub Actions: `.github/workflows/build.yml`
+## Step 10 — Choose a deployment target and get credentials
+
+Pick one:
+
+### Option A: Fly.io (recommended — cheap always-on hosting)
+1. Sign up at [fly.io](https://fly.io)
+2. Install the CLI: `brew install flyctl` (or see fly.io docs)
+3. Run `flyctl auth login`
+4. Get a deploy token: `flyctl tokens create deploy`
+5. Add it to GitHub: repo → Settings → Secrets and variables → Actions → New secret → name it `FLY_API_TOKEN`
+
+### Option B: Vercel (free tier, serverless)
+1. Sign up at [vercel.com](https://vercel.com)
+2. Create a token: Account Settings → Tokens
+3. Add it to GitHub as `VERCEL_TOKEN`
+
+---
+
+## Step 11 — Create the GitHub Actions workflow
+
+**`.github/workflows/build.yml`**:
 
 ```yaml
 name: Build and Deploy
@@ -184,7 +256,7 @@ name: Build and Deploy
 on:
   push:
     branches: [main]
-  workflow_dispatch:
+  workflow_dispatch:       # allows manual trigger from GitHub UI
 
 jobs:
   build:
@@ -192,99 +264,121 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: uv sync
 
-      # Download the previously-built DB so upsert only processes changes
-      - name: Download previous tils.db
-        run: curl --fail -o tils.db https://YOUR_DEPLOYED_URL/tils.db
-        continue-on-error: true  # First deploy won't have one yet
+      - name: Download previous blog.db
+        run: curl --fail -o blog.db https://YOUR_DEPLOYED_URL/blog.db
+        continue-on-error: true   # OK to fail on first deploy
 
       - name: Build database
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python build_database.py
+        run: uv run python build_database.py
 
-      # Sanity check — make sure the site actually renders
       - name: Soundness check
-        run: datasette . --get / | grep "My TIL"
+        run: uv run datasette blog.db --get / | grep "My Blog"
 
+      # --- Choose ONE of the deploy steps below ---
+
+      # Option A: Fly.io
       - name: Deploy to Fly.io
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
         run: |
-          pip install datasette-publish-fly
-          datasette publish fly tils.db \
-            --app my-til \
+          uv pip install datasette-publish-fly
+          uv run datasette publish fly blog.db \
+            --app my-blog \
             --metadata metadata.yml \
             --template-dir templates/ \
             --install datasette-template-sql \
             --install datasette-render-markdown
+
+      # Option B: Vercel (comment out A and uncomment this)
+      # - name: Deploy to Vercel
+      #   env:
+      #     VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      #   run: |
+      #     uv pip install datasette-publish-vercel
+      #     uv run datasette publish vercel blog.db \
+      #       --project my-blog \
+      #       --token $VERCEL_TOKEN \
+      #       --metadata metadata.yml \
+      #       --template-dir templates/ \
+      #       --install datasette-template-sql \
+      #       --install datasette-render-markdown
 ```
 
-The `continue-on-error: true` on the download step is important — on your first deploy there's no existing DB to download. After that, downloading the previous DB means your incremental upserts are fast and you don't re-render all markdown from scratch.
+> ⚠️ Replace `YOUR_DEPLOYED_URL` with the URL of your live site after the first deploy (e.g. `https://my-til.fly.dev`). On the very first deploy, leave it as a placeholder — the `continue-on-error: true` handles it.
 
 ---
 
-## 7. Deployment Options
+## Step 12 — Trigger the first deploy
 
-**Fly.io** (what Simon uses now — cheapest for always-on):
 ```bash
-pip install datasette-publish-fly
-datasette publish fly tils.db --app my-til
+git add .
+git commit -m "Add GitHub Actions workflow"
+git push
 ```
 
-**Vercel** (free tier, serverless):
-```bash
-pip install datasette-publish-vercel
-datasette publish vercel tils.db --project my-til --token $VERCEL_TOKEN
-```
+Go to your repo on GitHub → **Actions** tab → watch the workflow run. The first run will skip the DB download (no live site yet) and do a fresh build and deploy.
 
-**Cloud Run** (Google — scales to zero):
-```bash
-datasette publish cloudrun tils.db --service my-til
-```
-
-All three have corresponding `datasette-publish-*` packages that handle containerization and deployment for you.
+Once it succeeds, you'll get a live URL. Copy that URL and update the `curl` line in `build.yml` with it, then push again.
 
 ---
 
-## 8. Key Plugins
+## Step 13 — Write new posts
 
-| Plugin | What it does |
-|---|---|
-| `datasette-template-sql` | Run SQL queries inside Jinja2 templates |
-| `datasette-render-markdown` | Render markdown columns in table view |
-| `datasette-publish-fly` / `-vercel` / `-cloudrun` | One-command deploy |
-| `datasette-sitemap` | Auto-generate sitemap.xml |
-| `datasette-atom` | Auto-generate Atom feed from any query |
+From here on, the workflow is simple:
 
-The Atom feed plugin is particularly nice — point it at `SELECT * FROM til ORDER BY created DESC LIMIT 20` and you get an RSS feed with zero custom code.
+```bash
+# Add a new topic folder and post
+mkdir git
+echo "# How to undo the last commit\n\nUse git reset HEAD~1 --soft to undo without losing changes." > git/undo-last-commit.md
+
+git add .
+git commit -m "Add post: how to undo the last commit"
+git push
+```
+
+GitHub Actions automatically rebuilds the database and redeploys. Your post is live in ~2 minutes.
 
 ---
 
-## Getting Started Fast
+## Final File Structure
 
-```bash
-# Set up the project
-mkdir my-til && cd my-til
-python -m venv .venv && source .venv/bin/activate
-pip install datasette sqlite-utils httpx datasette-template-sql
-
-# Create a test post
-mkdir python
-echo "# Walrus operator is actually useful\n\nFound a real use case today..." > python/walrus-operator.md
-
-# Build the DB
-python build_database.py
-
-# Run locally
-datasette . --metadata metadata.yml --template-dir templates/
+```
+my-til/
+├── .github/
+│   └── workflows/
+│       └── build.yml
+├── python/
+│   └── first-post.md
+├── git/
+│   └── undo-last-commit.md
+├── templates/
+│   └── index.html
+├── build_database.py
+├── metadata.yml
+├── pyproject.toml
+├── uv.lock
+└── .gitignore
 ```
 
-Then visit `localhost:8001` and you'll see Datasette serving your markdown as a browsable, searchable database.
+---
+
+## Optional Extras
+
+**Add an Atom/RSS feed** — install `datasette-atom` and add to metadata.yml:
+```yaml
+plugins:
+  datasette-atom:
+    sql: "SELECT path as id, title, html as content_html FROM posts ORDER BY rowid DESC LIMIT 20"
+```
+
+**Add full-text search UI** — install `datasette-search-all` and it appears automatically.
+
+**Add created/updated timestamps** — use the GitHub API in `build_database.py` to fetch commit timestamps for each file and store them in the DB.
