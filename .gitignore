@@ -2,3 +2,4 @@
 __pycache__/
 *.pyc
 blog.db         # the DB is built by CI, not committed to git
+blog.db

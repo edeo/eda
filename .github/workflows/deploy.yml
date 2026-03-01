@@ -1,0 +1,34 @@
+name: Build and Deploy Blog
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install sqlite-utils markdown datasette datasette-template-sql datasette-publish-fly
+
+      - name: Build database
+        run: python build_database.py
+
+      - name: Deploy to Fly.io
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          datasette publish fly blog.db \
+            --app ed-datasette-blog \
+            --template-dir templates/ \
+            --install datasette-template-sql
