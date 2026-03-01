@@ -15,7 +15,7 @@ def build_database(root):
         body = fp.read().strip()
 
         path = str(filepath.relative_to(root))
-        path_slug = path.replace("/", "_")
+        path_slug = path.replace("/", "_").replace(".md", "")        
         slug = filepath.stem
         topic = path.split("/")[0]
         url = f"https://github.com/edeo/eda/blob/main/{path}"
