@@ -19,10 +19,13 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install sqlite-utils markdown datasette datasette-template-sql datasette-publish-fly
+          pip install sqlite-utils markdown datasette datasette-template-sql
 
       - name: Build database
         run: python build_database.py
+
+      - name: Install flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
 
       - name: Deploy to Fly.io
         env:
