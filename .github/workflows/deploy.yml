@@ -19,7 +19,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install sqlite-utils markdown datasette datasette-template-sql
+          pip install sqlite-utils markdown datasette datasette-template-sql datasette-publish-fly
 
       - name: Build database
         run: python build_database.py
