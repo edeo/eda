@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div style="max-width: 700px; margin: 2em auto; padding: 0 1em;">
+
+  <h1>My Blog</h1>
+  <p style="color: #666;">{{ sql("SELECT COUNT(*) FROM posts", database="blog")[0][0] }} posts so far.</p>
+
+  <hr>
+
+  {% for post in sql("SELECT title, slug, topic, html FROM posts ORDER BY rowid DESC LIMIT 5", database="blog") %}
+  <article style="margin-bottom: 3em;">
+
+    <h2><a href="/post/{{ post.slug }}" style="text-decoration: none;">{{ post.title }}</a></h2>
+    <p style="color: #666; font-size: 0.9em;">Topic: <strong>{{ post.topic }}</strong></p>
+
+    <div class="blog-content">
+      {{ post.html | safe }}
+    </div>
+
+    <p><a href="/post/{{ post.slug }}">&rarr; Read more</a></p>
+    <hr>
+
+  </article>
+  {% endfor %}
+
+  <h2>All Posts by Topic</h2>
+  {% for topic in sql("SELECT DISTINCT topic FROM posts ORDER BY topic", database="blog") %}
+    <h3>{{ topic[0] }}</h3>
+    <ul>
+      {% for link in sql("SELECT title, slug FROM posts WHERE topic = ?", [topic[0]], database="blog") %}
+      <li><a href="/post/{{ link.slug }}">{{ link.title }}</a></li>
+      {% endfor %}
+    </ul>
+  {% endfor %}
+
+</div>
+{% endblock %}

@@ -1,15 +1,9 @@
-{% extends "base.html" %}
-
-{% block content %}
-<h1>My Blog</h1>
-<p>{{ sql("SELECT COUNT(*) FROM posts", database="blog")[0][0] }} posts so far.</p>
-
-{% for topic_row in sql("SELECT DISTINCT topic FROM posts ORDER BY topic", database="blog") %}
-  <h2>{{ topic_row[0] }}</h2>
-  <ul>
-    {% for row in sql("SELECT title, path FROM posts WHERE topic = ?", [topic_row[0]], database="blog") %}
-    <li><a href="/blog/posts/{{ row[1] }}">{{ row[0] }}</a></li>
-    {% endfor %}
-  </ul>
-{% endfor %}
-{% endblock %}
+<!DOCTYPE html>
+<html>
+<head>
+  <meta http-equiv="refresh" content="0;url=/home">
+</head>
+<body>
+  <a href="/home">Redirecting to blog...</a>
+</body>
+</html>

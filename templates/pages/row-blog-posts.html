@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div style="max-width: 700px; margin: 2em auto; padding: 0 1em;">
+
+  <p><a href="/">&larr; Home</a></p>
+
+  <h1>{{ row.title }}</h1>
+
+  <p style="color: #666; font-size: 0.9em;">
+    Topic: <strong>{{ row.topic }}</strong>
+    &nbsp;&middot;&nbsp;
+    <a href="{{ row.url }}" target="_blank">View source on GitHub</a>
+  </p>
+
+  <hr>
+
+  <div class="blog-content">
+    {{ row.html | safe }}
+  </div>
+
+</div>
+{% endblock %}
